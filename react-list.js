@@ -1,678 +1,77 @@
-(function (global, factory) {
-  if (typeof define === "function" && define.amd) {
-    define(['module', 'prop-types', 'react', 'react-dom'], factory);
-  } else if (typeof exports !== "undefined") {
-    factory(module, require('prop-types'), require('react'), require('react-dom'));
-  } else {
-    var mod = {
-      exports: {}
-    };
-    factory(mod, global.PropTypes, global.React, global.ReactDOM);
-    global.ReactList = mod.exports;
-  }
-})(this, function (_module2, _propTypes, _react, _reactDom) {
-  'use strict';
+import PropTypes from 'prop-types';
+import React, {Component} from 'react';
+import ReactDOM from 'react-dom';
+import shallowCompare from 'react-addons-shallow-compare';
 
-  var _module3 = _interopRequireDefault(_module2);
+const {findDOMNode} = ReactDOM;
 
-  var _propTypes2 = _interopRequireDefault(_propTypes);
+const CLIENT_SIZE_KEYS = {x: 'clientWidth', y: 'clientHeight'};
+const CLIENT_START_KEYS = {x: 'clientTop', y: 'clientLeft'};
+const INNER_SIZE_KEYS = {x: 'innerWidth', y: 'innerHeight'};
+const OFFSET_SIZE_KEYS = {x: 'offsetWidth', y: 'offsetHeight'};
+const OFFSET_START_KEYS = {x: 'offsetLeft', y: 'offsetTop'};
+const OVERFLOW_KEYS = {x: 'overflowX', y: 'overflowY'};
+const SCROLL_SIZE_KEYS = {x: 'scrollWidth', y: 'scrollHeight'};
+const SCROLL_START_KEYS = {x: 'scrollLeft', y: 'scrollTop'};
+const SIZE_KEYS = {x: 'width', y: 'height'};
 
-  var _react2 = _interopRequireDefault(_react);
+const requestAnimationFrame =
+        window.requestAnimationFrame ||
+        window.mozRequestAnimationFrame ||
+        window.webkitRequestAnimationFrame ||
+        window.msRequestAnimationFrame;
+const cancelAnimationFrame = window.cancelAnimationFrame || window.mozCancelAnimationFrame;
 
-  var _reactDom2 = _interopRequireDefault(_reactDom);
-
-  function _interopRequireDefault(obj) {
-    return obj && obj.__esModule ? obj : {
-      default: obj
-    };
-  }
-
-  function _classCallCheck(instance, Constructor) {
-    if (!(instance instanceof Constructor)) {
-      throw new TypeError("Cannot call a class as a function");
-    }
-  }
-
-  var _createClass = function () {
-    function defineProperties(target, props) {
-      for (var i = 0; i < props.length; i++) {
-        var descriptor = props[i];
-        descriptor.enumerable = descriptor.enumerable || false;
-        descriptor.configurable = true;
-        if ("value" in descriptor) descriptor.writable = true;
-        Object.defineProperty(target, descriptor.key, descriptor);
-      }
-    }
-
-    return function (Constructor, protoProps, staticProps) {
-      if (protoProps) defineProperties(Constructor.prototype, protoProps);
-      if (staticProps) defineProperties(Constructor, staticProps);
-      return Constructor;
-    };
-  }();
-
-  function _possibleConstructorReturn(self, call) {
-    if (!self) {
-      throw new ReferenceError("this hasn't been initialised - super() hasn't been called");
-    }
-
-    return call && (typeof call === "object" || typeof call === "function") ? call : self;
-  }
-
-  function _inherits(subClass, superClass) {
-    if (typeof superClass !== "function" && superClass !== null) {
-      throw new TypeError("Super expression must either be null or a function, not " + typeof superClass);
-    }
-
-    subClass.prototype = Object.create(superClass && superClass.prototype, {
-      constructor: {
-        value: subClass,
-        enumerable: false,
-        writable: true,
-        configurable: true
+// If a browser doesn't support the `options` argument to
+// add/removeEventListener, we need to check, otherwise we will
+// accidentally set `capture` with a truthy value.
+const PASSIVE = (() => {
+  if (typeof window === 'undefined') return false;
+  let hasSupport = false;
+  try {
+    document.createElement('div').addEventListener('test', NOOP, {
+      get passive() {
+        hasSupport = true;
+        return false;
       }
     });
-    if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass;
-  }
+  } catch (e) {}
+  return hasSupport;
+})() ? {passive: true} : false;
 
-  var _class, _temp;
+const UNSTABLE_MESSAGE = 'ReactList failed to reach a stable state.';
+const MAX_SYNC_UPDATES = 100;
 
-  var findDOMNode = _reactDom2.default.findDOMNode;
+const isEqualSubset = (a, b) => {
+  for (let key in b) if (a[key] !== b[key]) return false;
 
+  return true;
+};
 
-  var CLIENT_SIZE_KEYS = { x: 'clientWidth', y: 'clientHeight' };
-  var CLIENT_START_KEYS = { x: 'clientTop', y: 'clientLeft' };
-  var INNER_SIZE_KEYS = { x: 'innerWidth', y: 'innerHeight' };
-  var OFFSET_SIZE_KEYS = { x: 'offsetWidth', y: 'offsetHeight' };
-  var OFFSET_START_KEYS = { x: 'offsetLeft', y: 'offsetTop' };
-  var OVERFLOW_KEYS = { x: 'overflowX', y: 'overflowY' };
-  var SCROLL_SIZE_KEYS = { x: 'scrollWidth', y: 'scrollHeight' };
-  var SCROLL_START_KEYS = { x: 'scrollLeft', y: 'scrollTop' };
-  var SIZE_KEYS = { x: 'width', y: 'height' };
+module.exports = class ReactList extends Component {
+  static displayName = 'ReactList';
 
-  var NOOP = function NOOP() {};
-
-  // If a browser doesn't support the `options` argument to
-  // add/removeEventListener, we need to check, otherwise we will
-  // accidentally set `capture` with a truthy value.
-  var PASSIVE = function () {
-    if (typeof window === 'undefined') return false;
-    var hasSupport = false;
-    try {
-      document.createElement('div').addEventListener('test', NOOP, {
-        get passive() {
-          hasSupport = true;
-          return false;
-        }
-      });
-    } catch (e) {}
-    return hasSupport;
-  }() ? { passive: true } : false;
-
-  var UNSTABLE_MESSAGE = 'ReactList failed to reach a stable state.';
-  var MAX_SYNC_UPDATES = 100;
-
-  var isEqualSubset = function isEqualSubset(a, b) {
-    for (var key in b) {
-      if (a[key] !== b[key]) return false;
-    }return true;
+  static propTypes = {
+    axis: PropTypes.oneOf(['x', 'y']),
+    initialIndex: PropTypes.number,
+    itemRenderer: PropTypes.func,
+    itemSizeEstimator: PropTypes.func,
+    itemSizeGetter: PropTypes.func,
+    itemsRenderer: PropTypes.func,
+    length: PropTypes.number,
+    minSize: PropTypes.number,
+    pageSize: PropTypes.number,
+    scrollParentGetter: PropTypes.func,
+    threshold: PropTypes.number,
+    type: PropTypes.oneOf(['simple', 'variable', 'uniform']),
+    useStaticSize: PropTypes.bool,
+    useTranslate3d: PropTypes.bool
   };
 
-  _module3.default.exports = (_temp = _class = function (_Component) {
-    _inherits(ReactList, _Component);
-
-    function ReactList(props) {
-      _classCallCheck(this, ReactList);
-
-      var _this = _possibleConstructorReturn(this, (ReactList.__proto__ || Object.getPrototypeOf(ReactList)).call(this, props));
-
-      var initialIndex = props.initialIndex;
-
-      var itemsPerRow = 1;
-
-      var _this$constrain = _this.constrain(initialIndex, 0, itemsPerRow, props),
-          from = _this$constrain.from,
-          size = _this$constrain.size;
-
-      _this.state = { from: from, size: size, itemsPerRow: itemsPerRow };
-      _this.cache = {};
-      _this.prevPrevState = {};
-      _this.unstable = false;
-      _this.updateCounter = 0;
-      return _this;
-    }
-
-    _createClass(ReactList, [{
-      key: 'componentWillReceiveProps',
-      value: function componentWillReceiveProps(next) {
-        var _state = this.state,
-            from = _state.from,
-            size = _state.size,
-            itemsPerRow = _state.itemsPerRow;
-
-        this.maybeSetState(this.constrain(from, size, itemsPerRow, next), NOOP);
-      }
-    }, {
-      key: 'componentDidMount',
-      value: function componentDidMount() {
-        this.updateFrame = this.updateFrame.bind(this);
-        window.addEventListener('resize', this.updateFrame);
-        this.updateFrame(this.scrollTo.bind(this, this.props.initialIndex));
-      }
-    }, {
-      key: 'componentDidUpdate',
-      value: function componentDidUpdate() {
-        var _this2 = this;
-
-        // If the list has reached an unstable state, prevent an infinite loop.
-        if (this.unstable) return;
-
-        if (++this.updateCounter > MAX_SYNC_UPDATES) {
-          this.unstable = true;
-          return console.error(UNSTABLE_MESSAGE);
-        }
-
-        if (!this.updateCounterTimeoutId) {
-          this.updateCounterTimeoutId = setTimeout(function () {
-            _this2.updateCounter = 0;
-            delete _this2.updateCounterTimeoutId;
-          }, 0);
-        }
-
-        this.updateFrame();
-      }
-    }, {
-      key: 'maybeSetState',
-      value: function maybeSetState(b, cb) {
-        if (isEqualSubset(this.state, b)) return cb();
-
-        this.setState(b, cb);
-      }
-    }, {
-      key: 'componentWillUnmount',
-      value: function componentWillUnmount() {
-        window.removeEventListener('resize', this.updateFrame);
-        this.scrollParent.removeEventListener('scroll', this.updateFrame, PASSIVE);
-        this.scrollParent.removeEventListener('mousewheel', NOOP, PASSIVE);
-      }
-    }, {
-      key: 'getOffset',
-      value: function getOffset(el) {
-        var axis = this.props.axis;
-
-        var offset = el[CLIENT_START_KEYS[axis]] || 0;
-        var offsetKey = OFFSET_START_KEYS[axis];
-        do {
-          offset += el[offsetKey] || 0;
-        } while (el = el.offsetParent);
-        return offset;
-      }
-    }, {
-      key: 'getScrollParent',
-      value: function getScrollParent() {
-        var _props = this.props,
-            axis = _props.axis,
-            scrollParentGetter = _props.scrollParentGetter;
-
-        if (scrollParentGetter) return scrollParentGetter();
-        var el = findDOMNode(this);
-        var overflowKey = OVERFLOW_KEYS[axis];
-        while (el = el.parentElement) {
-          switch (window.getComputedStyle(el)[overflowKey]) {
-            case 'auto':case 'scroll':case 'overlay':
-              return el;
-          }
-        }
-        return window;
-      }
-    }, {
-      key: 'getScroll',
-      value: function getScroll() {
-        var scrollParent = this.scrollParent;
-        var axis = this.props.axis;
-
-        var scrollKey = SCROLL_START_KEYS[axis];
-        var actual = scrollParent === window ?
-        // Firefox always returns document.body[scrollKey] as 0 and Chrome/Safari
-        // always return document.documentElement[scrollKey] as 0, so take
-        // whichever has a value.
-        document.body[scrollKey] || document.documentElement[scrollKey] : scrollParent[scrollKey];
-        var max = this.getScrollSize() - this.getViewportSize();
-        var scroll = Math.max(0, Math.min(actual, max));
-        var el = findDOMNode(this);
-        return this.getOffset(scrollParent) + scroll - this.getOffset(el);
-      }
-    }, {
-      key: 'setScroll',
-      value: function setScroll(offset) {
-        var scrollParent = this.scrollParent;
-        var axis = this.props.axis;
-
-        offset += this.getOffset(findDOMNode(this));
-        if (scrollParent === window) return window.scrollTo(0, offset);
-
-        offset -= this.getOffset(this.scrollParent);
-        scrollParent[SCROLL_START_KEYS[axis]] = offset;
-      }
-    }, {
-      key: 'getViewportSize',
-      value: function getViewportSize() {
-        var scrollParent = this.scrollParent;
-        var axis = this.props.axis;
-
-        return scrollParent === window ? window[INNER_SIZE_KEYS[axis]] : scrollParent[CLIENT_SIZE_KEYS[axis]];
-      }
-    }, {
-      key: 'getScrollSize',
-      value: function getScrollSize() {
-        var scrollParent = this.scrollParent;
-        var _document = document,
-            body = _document.body,
-            documentElement = _document.documentElement;
-
-        var key = SCROLL_SIZE_KEYS[this.props.axis];
-        return scrollParent === window ? Math.max(body[key], documentElement[key]) : scrollParent[key];
-      }
-    }, {
-      key: 'hasDeterminateSize',
-      value: function hasDeterminateSize() {
-        var _props2 = this.props,
-            itemSizeGetter = _props2.itemSizeGetter,
-            type = _props2.type;
-
-        return type === 'uniform' || itemSizeGetter;
-      }
-    }, {
-      key: 'getStartAndEnd',
-      value: function getStartAndEnd() {
-        var threshold = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : this.props.threshold;
-
-        var scroll = this.getScroll();
-        var start = Math.max(0, scroll - threshold);
-        var end = scroll + this.getViewportSize() + threshold;
-        if (this.hasDeterminateSize()) {
-          end = Math.min(end, this.getSpaceBefore(this.props.length));
-        }
-        return { start: start, end: end };
-      }
-    }, {
-      key: 'getItemSizeAndItemsPerRow',
-      value: function getItemSizeAndItemsPerRow() {
-        var _props3 = this.props,
-            axis = _props3.axis,
-            useStaticSize = _props3.useStaticSize;
-        var _state2 = this.state,
-            itemSize = _state2.itemSize,
-            itemsPerRow = _state2.itemsPerRow;
-
-        if (useStaticSize && itemSize && itemsPerRow) {
-          return { itemSize: itemSize, itemsPerRow: itemsPerRow };
-        }
-
-        var itemEls = findDOMNode(this.items).children;
-        if (!itemEls.length) return {};
-
-        var firstEl = itemEls[0];
-
-        // Firefox has a problem where it will return a *slightly* (less than
-        // thousandths of a pixel) different size for the same element between
-        // renders. This can cause an infinite render loop, so only change the
-        // itemSize when it is significantly different.
-        var firstElSize = firstEl[OFFSET_SIZE_KEYS[axis]];
-        var delta = Math.abs(firstElSize - itemSize);
-        if (isNaN(delta) || delta >= 1) itemSize = firstElSize;
-
-        if (!itemSize) return {};
-
-        var startKey = OFFSET_START_KEYS[axis];
-        var firstStart = firstEl[startKey];
-        itemsPerRow = 1;
-        for (var item = itemEls[itemsPerRow]; item && item[startKey] === firstStart; item = itemEls[itemsPerRow]) {
-          ++itemsPerRow;
-        }return { itemSize: itemSize, itemsPerRow: itemsPerRow };
-      }
-    }, {
-      key: 'updateFrame',
-      value: function updateFrame(cb) {
-        this.updateScrollParent();
-        if (typeof cb != 'function') cb = NOOP;
-        switch (this.props.type) {
-          case 'simple':
-            return this.updateSimpleFrame(cb);
-          case 'variable':
-            return this.updateVariableFrame(cb);
-          case 'uniform':
-            return this.updateUniformFrame(cb);
-        }
-      }
-    }, {
-      key: 'updateScrollParent',
-      value: function updateScrollParent() {
-        var prev = this.scrollParent;
-        this.scrollParent = this.getScrollParent();
-        if (prev === this.scrollParent) return;
-        if (prev) {
-          prev.removeEventListener('scroll', this.updateFrame);
-          prev.removeEventListener('mousewheel', NOOP);
-        }
-        this.scrollParent.addEventListener('scroll', this.updateFrame, PASSIVE);
-        this.scrollParent.addEventListener('mousewheel', NOOP, PASSIVE);
-      }
-    }, {
-      key: 'updateSimpleFrame',
-      value: function updateSimpleFrame(cb) {
-        var _getStartAndEnd = this.getStartAndEnd(),
-            end = _getStartAndEnd.end;
-
-        var itemEls = findDOMNode(this.items).children;
-        var elEnd = 0;
-
-        if (itemEls.length) {
-          var axis = this.props.axis;
-
-          var firstItemEl = itemEls[0];
-          var lastItemEl = itemEls[itemEls.length - 1];
-          elEnd = this.getOffset(lastItemEl) + lastItemEl[OFFSET_SIZE_KEYS[axis]] - this.getOffset(firstItemEl);
-        }
-
-        if (elEnd > end) return cb();
-
-        var _props4 = this.props,
-            pageSize = _props4.pageSize,
-            length = _props4.length;
-
-        var size = Math.min(this.state.size + pageSize, length);
-        this.maybeSetState({ size: size }, cb);
-      }
-    }, {
-      key: 'updateVariableFrame',
-      value: function updateVariableFrame(cb) {
-        if (!this.props.itemSizeGetter) this.cacheSizes();
-
-        var _getStartAndEnd2 = this.getStartAndEnd(),
-            start = _getStartAndEnd2.start,
-            end = _getStartAndEnd2.end;
-
-        var _props5 = this.props,
-            length = _props5.length,
-            pageSize = _props5.pageSize;
-
-        var space = 0;
-        var from = 0;
-        var size = 0;
-        var maxFrom = length - 1;
-
-        while (from < maxFrom) {
-          var itemSize = this.getSizeOf(from);
-          if (itemSize == null || space + itemSize > start) break;
-          space += itemSize;
-          ++from;
-        }
-
-        var maxSize = length - from;
-
-        while (size < maxSize && space < end) {
-          var _itemSize = this.getSizeOf(from + size);
-          if (_itemSize == null) {
-            size = Math.min(size + pageSize, maxSize);
-            break;
-          }
-          space += _itemSize;
-          ++size;
-        }
-
-        this.maybeSetState({ from: from, size: size }, cb);
-      }
-    }, {
-      key: 'updateUniformFrame',
-      value: function updateUniformFrame(cb) {
-        var _getItemSizeAndItemsP = this.getItemSizeAndItemsPerRow(),
-            itemSize = _getItemSizeAndItemsP.itemSize,
-            itemsPerRow = _getItemSizeAndItemsP.itemsPerRow;
-
-        if (!itemSize || !itemsPerRow) return cb();
-
-        var _getStartAndEnd3 = this.getStartAndEnd(),
-            start = _getStartAndEnd3.start,
-            end = _getStartAndEnd3.end;
-
-        var _constrain = this.constrain(Math.floor(start / itemSize) * itemsPerRow, (Math.ceil((end - start) / itemSize) + 1) * itemsPerRow, itemsPerRow, this.props),
-            from = _constrain.from,
-            size = _constrain.size;
-
-        return this.maybeSetState({ itemsPerRow: itemsPerRow, from: from, itemSize: itemSize, size: size }, cb);
-      }
-    }, {
-      key: 'getSpaceBefore',
-      value: function getSpaceBefore(index) {
-        var cache = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-
-        if (cache[index] != null) return cache[index];
-
-        // Try the static itemSize.
-        var _state3 = this.state,
-            itemSize = _state3.itemSize,
-            itemsPerRow = _state3.itemsPerRow;
-
-        if (itemSize) {
-          return cache[index] = Math.floor(index / itemsPerRow) * itemSize;
-        }
-
-        // Find the closest space to index there is a cached value for.
-        var from = index;
-        while (from > 0 && cache[--from] == null) {}
-
-        // Finally, accumulate sizes of items from - index.
-        var space = cache[from] || 0;
-        for (var i = from; i < index; ++i) {
-          cache[i] = space;
-          var _itemSize2 = this.getSizeOf(i);
-          if (_itemSize2 == null) break;
-          space += _itemSize2;
-        }
-
-        return cache[index] = space;
-      }
-    }, {
-      key: 'cacheSizes',
-      value: function cacheSizes() {
-        var cache = this.cache;
-        var from = this.state.from;
-
-        var itemEls = findDOMNode(this.items).children;
-        var sizeKey = OFFSET_SIZE_KEYS[this.props.axis];
-        for (var i = 0, l = itemEls.length; i < l; ++i) {
-          cache[from + i] = itemEls[i][sizeKey];
-        }
-      }
-    }, {
-      key: 'getSizeOf',
-      value: function getSizeOf(index) {
-        var cache = this.cache,
-            items = this.items;
-        var _props6 = this.props,
-            axis = _props6.axis,
-            itemSizeGetter = _props6.itemSizeGetter,
-            itemSizeEstimator = _props6.itemSizeEstimator,
-            type = _props6.type;
-        var _state4 = this.state,
-            from = _state4.from,
-            itemSize = _state4.itemSize,
-            size = _state4.size;
-
-
-        // Try the static itemSize.
-        if (itemSize) return itemSize;
-
-        // Try the itemSizeGetter.
-        if (itemSizeGetter) return itemSizeGetter(index);
-
-        // Try the cache.
-        if (index in cache) return cache[index];
-
-        // Try the DOM.
-        if (type === 'simple' && index >= from && index < from + size && items) {
-          var itemEl = findDOMNode(items).children[index - from];
-          if (itemEl) return itemEl[OFFSET_SIZE_KEYS[axis]];
-        }
-
-        // Try the itemSizeEstimator.
-        if (itemSizeEstimator) return itemSizeEstimator(index, cache);
-      }
-    }, {
-      key: 'constrain',
-      value: function constrain(from, size, itemsPerRow, _ref) {
-        var length = _ref.length,
-            minSize = _ref.minSize,
-            type = _ref.type;
-
-        size = Math.max(size, minSize);
-        var mod = size % itemsPerRow;
-        if (mod) size += itemsPerRow - mod;
-        if (size > length) size = length;
-        from = type === 'simple' || !from ? 0 : Math.max(Math.min(from, length - size), 0);
-
-        if (mod = from % itemsPerRow) {
-          from -= mod;
-          size += mod;
-        }
-
-        return { from: from, size: size };
-      }
-    }, {
-      key: 'scrollTo',
-      value: function scrollTo(index) {
-        if (index != null) this.setScroll(this.getSpaceBefore(index));
-      }
-    }, {
-      key: 'scrollAround',
-      value: function scrollAround(index) {
-        var current = this.getScroll();
-        var bottom = this.getSpaceBefore(index);
-        var top = bottom - this.getViewportSize() + this.getSizeOf(index);
-        var min = Math.min(top, bottom);
-        var max = Math.max(top, bottom);
-        if (current <= min) return this.setScroll(min);
-        if (current > max) return this.setScroll(max);
-      }
-    }, {
-      key: 'getVisibleRange',
-      value: function getVisibleRange() {
-        var _state5 = this.state,
-            from = _state5.from,
-            size = _state5.size;
-
-        var _getStartAndEnd4 = this.getStartAndEnd(0),
-            start = _getStartAndEnd4.start,
-            end = _getStartAndEnd4.end;
-
-        var cache = {};
-        var first = void 0,
-            last = void 0;
-        for (var i = from; i < from + size; ++i) {
-          var itemStart = this.getSpaceBefore(i, cache);
-          var itemEnd = itemStart + this.getSizeOf(i);
-          if (first == null && itemEnd > start) first = i;
-          if (first != null && itemStart < end) last = i;
-        }
-        return [first, last];
-      }
-    }, {
-      key: 'renderItems',
-      value: function renderItems() {
-        var _this3 = this;
-
-        var _props7 = this.props,
-            itemRenderer = _props7.itemRenderer,
-            itemsRenderer = _props7.itemsRenderer;
-        var _state6 = this.state,
-            from = _state6.from,
-            size = _state6.size;
-
-        var items = [];
-        for (var i = 0; i < size; ++i) {
-          items.push(itemRenderer(from + i, i));
-        }return itemsRenderer(items, function (c) {
-          return _this3.items = c;
-        });
-      }
-    }, {
-      key: 'render',
-      value: function render() {
-        var _props8 = this.props,
-            axis = _props8.axis,
-            length = _props8.length,
-            type = _props8.type,
-            useTranslate3d = _props8.useTranslate3d;
-        var _state7 = this.state,
-            from = _state7.from,
-            itemsPerRow = _state7.itemsPerRow;
-
-
-        var items = this.renderItems();
-        if (type === 'simple') return items;
-
-        var style = { position: 'relative' };
-        var cache = {};
-        var bottom = Math.ceil(length / itemsPerRow) * itemsPerRow;
-        var size = this.getSpaceBefore(bottom, cache);
-        if (size) {
-          style[SIZE_KEYS[axis]] = size;
-          if (axis === 'x') style.overflowX = 'hidden';
-        }
-        var offset = this.getSpaceBefore(from, cache);
-        var x = axis === 'x' ? offset : 0;
-        var y = axis === 'y' ? offset : 0;
-        var transform = useTranslate3d ? 'translate3d(' + x + 'px, ' + y + 'px, 0)' : 'translate(' + x + 'px, ' + y + 'px)';
-        var listStyle = {
-          msTransform: transform,
-          WebkitTransform: transform,
-          transform: transform
-        };
-        return _react2.default.createElement(
-          'div',
-          { style: style },
-          _react2.default.createElement(
-            'div',
-            { style: listStyle },
-            items
-          )
-        );
-      }
-    }]);
-
-    return ReactList;
-  }(_react.Component), _class.displayName = 'ReactList', _class.propTypes = {
-    axis: _propTypes2.default.oneOf(['x', 'y']),
-    initialIndex: _propTypes2.default.number,
-    itemRenderer: _propTypes2.default.func,
-    itemSizeEstimator: _propTypes2.default.func,
-    itemSizeGetter: _propTypes2.default.func,
-    itemsRenderer: _propTypes2.default.func,
-    length: _propTypes2.default.number,
-    minSize: _propTypes2.default.number,
-    pageSize: _propTypes2.default.number,
-    scrollParentGetter: _propTypes2.default.func,
-    threshold: _propTypes2.default.number,
-    type: _propTypes2.default.oneOf(['simple', 'variable', 'uniform']),
-    useStaticSize: _propTypes2.default.bool,
-    useTranslate3d: _propTypes2.default.bool
-  }, _class.defaultProps = {
+  static defaultProps = {
     axis: 'y',
-    itemRenderer: function itemRenderer(index, key) {
-      return _react2.default.createElement(
-        'div',
-        { key: key },
-        index
-      );
-    },
-    itemsRenderer: function itemsRenderer(items, ref) {
-      return _react2.default.createElement(
-        'div',
-        { ref: ref },
-        items
-      );
-    },
+    itemRenderer: (index, key) => <div key={key}>{index}</div>,
+    itemsRenderer: (items, ref) => <div ref={ref}>{items}</div>,
     length: 0,
     minSize: 1,
     pageSize: 10,
@@ -680,5 +79,431 @@
     type: 'simple',
     useStaticSize: false,
     useTranslate3d: false
-  }, _temp);
-});
+  };
+
+  constructor(props) {
+    super(props);
+    const {initialIndex} = props;
+    const itemsPerRow = 1;
+    const {from, size} = this.constrain(initialIndex, 0, itemsPerRow, props);
+    this.state = {from, size, itemsPerRow};
+    this.cache = {};
+    this.rafId = null;
+    this.refCallback = this.refCallback.bind(this);
+  }
+
+  componentWillReceiveProps(next) {
+    let {from, size, itemsPerRow} = this.state;
+    this.maybeSetState(this.constrain(from, size, itemsPerRow, next), NOOP);
+  }
+
+  componentDidMount() {
+    this.updateFrame = this.updateFrame.bind(this);
+    window.addEventListener('resize', this.updateFrame, {passive: true});
+    this.updateFrame(this.scrollTo.bind(this, this.props.initialIndex));
+  }
+
+  shouldComponentUpdate(props, state) {
+    return shallowCompare(this, props, state);
+  }
+  componentDidUpdate() {
+
+    // If the list has reached an unstable state, prevent an infinite loop.
+    if (this.unstable) return;
+
+    if (++this.updateCounter > MAX_SYNC_UPDATES) {
+      this.unstable = true;
+      return console.error(UNSTABLE_MESSAGE);
+    }
+
+    if (!this.updateCounterTimeoutId) {
+      this.updateCounterTimeoutId = setTimeout(() => {
+        this.updateCounter = 0;
+        delete this.updateCounterTimeoutId;
+      }, 0);
+    }
+
+    this.updateFrame();
+  }
+
+  maybeSetState(b, cb) {
+    if (isEqualSubset(this.state, b)) return cb();
+
+    this.setState(b, cb);
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener('resize', this.updateFrame);
+    this.scrollParent.removeEventListener('scroll', this.updateFrame);
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+    }
+  }
+
+  getOffset(el) {
+    const {axis} = this.props;
+    let offset = el[CLIENT_START_KEYS[axis]] || 0;
+    const offsetKey = OFFSET_START_KEYS[axis];
+    do offset += el[offsetKey] || 0; while (el = el.offsetParent);
+    return offset;
+  }
+
+  getScrollParent() {
+    const {axis, scrollParentGetter} = this.props;
+    if (scrollParentGetter) return scrollParentGetter();
+    let el = findDOMNode(this);
+    const overflowKey = OVERFLOW_KEYS[axis];
+    while (el = el.parentElement) {
+      switch (window.getComputedStyle(el)[overflowKey]) {
+      case 'auto': case 'scroll': case 'overlay': return el;
+      }
+    }
+    return window;
+  }
+
+  getScroll() {
+    const {scrollParent} = this;
+    const {axis} = this.props;
+    const scrollKey = SCROLL_START_KEYS[axis];
+    const actual = scrollParent === window ?
+      // Firefox always returns document.body[scrollKey] as 0 and Chrome/Safari
+      // always return document.documentElement[scrollKey] as 0, so take
+      // whichever has a value.
+      document.body[scrollKey] || document.documentElement[scrollKey] :
+      scrollParent[scrollKey];
+    const max = this.getScrollSize() - this.getViewportSize();
+    const scroll = Math.max(0, Math.min(actual, max));
+    const el = findDOMNode(this);
+    return this.getOffset(scrollParent) + scroll - this.getOffset(el);
+  }
+
+  setScroll(offset) {
+    const {scrollParent} = this;
+    const {axis} = this.props;
+    offset += this.getOffset(findDOMNode(this));
+    if (scrollParent === window) return window.scrollTo(0, offset);
+
+    offset -= this.getOffset(this.scrollParent);
+    scrollParent[SCROLL_START_KEYS[axis]] = offset;
+  }
+
+  getViewportSize() {
+    const {scrollParent} = this;
+    const {axis} = this.props;
+    return scrollParent === window ?
+      window[INNER_SIZE_KEYS[axis]] :
+      scrollParent[CLIENT_SIZE_KEYS[axis]];
+  }
+
+  getScrollSize() {
+    const {scrollParent} = this;
+    const {body, documentElement} = document;
+    const key = SCROLL_SIZE_KEYS[this.props.axis];
+    return scrollParent === window ?
+      Math.max(body[key], documentElement[key]) :
+      scrollParent[key];
+  }
+
+  hasDeterminateSize() {
+    const {itemSizeGetter, type} = this.props;
+    return type === 'uniform' || itemSizeGetter;
+  }
+
+  getStartAndEnd(threshold = this.props.threshold) {
+    const scroll = this.getScroll();
+    const start = Math.max(0, scroll - threshold);
+    let end = scroll + this.getViewportSize() + threshold;
+    if (this.hasDeterminateSize()) {
+      end = Math.min(end, this.getSpaceBefore(this.props.length));
+    }
+    return {start, end};
+  }
+
+  getItemSizeAndItemsPerRow() {
+    const {axis, useStaticSize} = this.props;
+    let {itemSize, itemsPerRow} = this.state;
+    if (useStaticSize && itemSize && itemsPerRow) {
+      return {itemSize, itemsPerRow};
+    }
+
+    const itemEls = findDOMNode(this.items).children;
+    if (!itemEls.length) return {};
+
+    const firstEl = itemEls[0];
+
+    // Firefox has a problem where it will return a *slightly* (less than
+    // thousandths of a pixel) different size for the same element between
+    // renders. This can cause an infinite render loop, so only change the
+    // itemSize when it is significantly different.
+    const firstElSize = firstEl[OFFSET_SIZE_KEYS[axis]];
+    const delta = Math.abs(firstElSize - itemSize);
+    if (isNaN(delta) || delta >= 1) itemSize = firstElSize;
+
+    if (!itemSize) return {};
+
+    const startKey = OFFSET_START_KEYS[axis];
+    const firstStart = firstEl[startKey];
+    itemsPerRow = 1;
+    for (
+      let item = itemEls[itemsPerRow];
+      item && item[startKey] === firstStart;
+      item = itemEls[itemsPerRow]
+    ) ++itemsPerRow;
+
+    return {itemSize, itemsPerRow};
+  }
+
+  updateFrame() {
+    this.updateScrollParent();
+    switch (this.props.type) {
+    case 'simple': return this.updateSimpleFrame();
+    case 'variable': return this.updateVariableFrame();
+    case 'uniform': return this.updateUniformFrame();
+    }
+  }
+
+  updateScrollParent() {
+    const prev = this.scrollParent;
+    this.scrollParent = this.getScrollParent();
+    if (prev === this.scrollParent) return;
+    if (prev) {
+      prev.removeEventListener('scroll', this.updateFrame);
+    }
+    this.scrollParent.addEventListener('scroll', this.updateFrame, {passive: true});
+  }
+
+  setNextState(state) {
+    if (this.state.from === state.from && this.state.size === state.size) {
+        return;
+    }
+
+    if (!requestAnimationFrame) {
+      this.setState(state);
+      return;
+    }
+
+    if (this.rafId !== null) {
+      return;
+    }
+
+    this.rafId = requestAnimationFrame(() => {
+      this.setState(state);
+      this.rafId = null;
+    });
+  }
+
+  updateSimpleFrame() {
+    const {end} = this.getStartAndEnd();
+    const itemEls = findDOMNode(this.items).children;
+    let elEnd = 0;
+
+    if (itemEls.length) {
+      const {axis} = this.props;
+      const firstItemEl = itemEls[0];
+      const lastItemEl = itemEls[itemEls.length - 1];
+      elEnd = this.getOffset(lastItemEl) + lastItemEl[OFFSET_SIZE_KEYS[axis]] -
+        this.getOffset(firstItemEl);
+    }
+
+    if (elEnd > end) return;
+
+    const {pageSize, length} = this.props;
+    this.setNextState({size: Math.min(this.state.size + pageSize, length)});
+  }
+
+  updateVariableFrame() {
+    if (!this.props.itemSizeGetter) this.cacheSizes();
+
+    const {start, end} = this.getStartAndEnd();
+    const {length, pageSize} = this.props;
+    let space = 0;
+    let from = 0;
+    let size = 0;
+    const maxFrom = length - 1;
+
+    while (from < maxFrom) {
+      const itemSize = this.getSizeOf(from);
+      if (itemSize == null || space + itemSize > start) break;
+      space += itemSize;
+      ++from;
+    }
+
+    const maxSize = length - from;
+
+    while (size < maxSize && space < end) {
+      const itemSize = this.getSizeOf(from + size);
+      if (itemSize == null) {
+        size = Math.min(size + pageSize, maxSize);
+        break;
+      }
+      space += itemSize;
+      ++size;
+    }
+
+    this.setNextState({from, size});
+  }
+
+  updateUniformFrame() {
+    let {itemSize, itemsPerRow} = this.getItemSizeAndItemsPerRow();
+
+    if (!itemSize || !itemsPerRow) return;
+
+    const {start, end} = this.getStartAndEnd();
+
+    const {from, size} = this.constrain(
+      Math.floor(start / itemSize) * itemsPerRow,
+      (Math.ceil((end - start) / itemSize) + 1) * itemsPerRow,
+      itemsPerRow,
+      this.props
+    );
+
+    return this.setNextState({itemsPerRow, from, itemSize, size});
+  }
+
+  getSpaceBefore(index, cache = {}) {
+    if (cache[index] != null) return cache[index];
+
+    // Try the static itemSize.
+    const {itemSize, itemsPerRow} = this.state;
+    if (itemSize) {
+      return cache[index] = Math.floor(index / itemsPerRow) * itemSize;
+    }
+
+    // Find the closest space to index there is a cached value for.
+    let from = index;
+    while (from > 0 && cache[--from] == null);
+
+    // Finally, accumulate sizes of items from - index.
+    let space = cache[from] || 0;
+    for (let i = from; i < index; ++i) {
+      cache[i] = space;
+      const itemSize = this.getSizeOf(i);
+      if (itemSize == null) break;
+      space += itemSize;
+    }
+
+    return cache[index] = space;
+  }
+
+  cacheSizes() {
+    const {cache} = this;
+    const {from} = this.state;
+    const itemEls = findDOMNode(this.items).children;
+    const sizeKey = OFFSET_SIZE_KEYS[this.props.axis];
+    for (let i = 0, l = itemEls.length; i < l; ++i) {
+      cache[from + i] = itemEls[i][sizeKey];
+    }
+  }
+
+  getSizeOf(index) {
+    const {cache, items} = this;
+    const {axis, itemSizeGetter, itemSizeEstimator, type} = this.props;
+    const {from, itemSize, size} = this.state;
+
+    // Try the static itemSize.
+    if (itemSize) return itemSize;
+
+    // Try the itemSizeGetter.
+    if (itemSizeGetter) return itemSizeGetter(index);
+
+    // Try the cache.
+    if (index in cache) return cache[index];
+
+    // Try the DOM.
+    if (type === 'simple' && index >= from && index < from + size && items) {
+      const itemEl = findDOMNode(items).children[index - from];
+      if (itemEl) return itemEl[OFFSET_SIZE_KEYS[axis]];
+    }
+
+    // Try the itemSizeEstimator.
+    if (itemSizeEstimator) return itemSizeEstimator(index, cache);
+  }
+
+  constrain(from, size, itemsPerRow, {length, minSize, type}) {
+    size = Math.max(size, minSize);
+    let mod = size % itemsPerRow;
+    if (mod) size += itemsPerRow - mod;
+    if (size > length) size = length;
+    from =
+      type === 'simple' || !from ? 0 :
+      Math.max(Math.min(from, length - size), 0);
+
+    if (mod = from % itemsPerRow) {
+      from -= mod;
+      size += mod;
+    }
+
+    return {from, size};
+  }
+
+  scrollTo(index) {
+    if (index != null) this.setScroll(this.getSpaceBefore(index));
+  }
+
+  scrollAround(index) {
+    const current = this.getScroll();
+    const bottom = this.getSpaceBefore(index);
+    const top = bottom - this.getViewportSize() + this.getSizeOf(index);
+    const min = Math.min(top, bottom);
+    const max = Math.max(top, bottom);
+    if (current <= min) return this.setScroll(min);
+    if (current > max) return this.setScroll(max);
+  }
+
+  getVisibleRange() {
+    const {from, size} = this.state;
+    const {start, end} = this.getStartAndEnd(0);
+    const cache = {};
+    let first, last;
+    for (let i = from; i < from + size; ++i) {
+      const itemStart = this.getSpaceBefore(i, cache);
+      const itemEnd = itemStart + this.getSizeOf(i);
+      if (first == null && itemEnd > start) first = i;
+      if (first != null && itemStart < end) last = i;
+    }
+    return [first, last];
+  }
+
+  refCallback(c) {
+    this.items = c;
+    return this.items;
+  }
+
+  renderItems() {
+    const {itemRenderer, itemsRenderer} = this.props;
+    const {from, size} = this.state;
+    const items = [];
+    for (let i = 0; i < size; ++i) items.push(itemRenderer(from + i, i));
+    return itemsRenderer(items, this.refCallback);
+  }
+
+  render() {
+    const {axis, length, type, useTranslate3d} = this.props;
+    const {from, itemsPerRow} = this.state;
+
+    const items = this.renderItems();
+    if (type === 'simple') return items;
+
+    const style = {position: 'relative'};
+    const cache = {};
+    const bottom = Math.ceil(length / itemsPerRow) * itemsPerRow;
+    const size = this.getSpaceBefore(bottom, cache);
+    if (size) {
+      style[SIZE_KEYS[axis]] = size;
+      if (axis === 'x') style.overflowX = 'hidden';
+    }
+    const offset = this.getSpaceBefore(from, cache);
+    const x = axis === 'x' ? offset : 0;
+    const y = axis === 'y' ? offset : 0;
+    const transform =
+      useTranslate3d ?
+      `translate3d(${x}px, ${y}px, 0)` :
+      `translate(${x}px, ${y}px)`;
+    const listStyle = {
+      msTransform: transform,
+      WebkitTransform: transform,
+      transform
+    };
+    return <div {...{style}}><div style={listStyle}>{items}</div></div>;
+  }
+};
