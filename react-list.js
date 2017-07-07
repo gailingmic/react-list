@@ -140,7 +140,6 @@ export class ReactList extends Component {
     const {axis, scrollParentGetter} = this.props;
     if (scrollParentGetter) return scrollParentGetter();
     let el = this.reactlist;
-    console.log("scrollparent", this);
     const overflowKey = OVERFLOW_KEYS[axis];
     while (el = el.parentElement) {
       switch (window.getComputedStyle(el)[overflowKey]) {

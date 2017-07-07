@@ -3,14 +3,15 @@
   "version": "0.8.6",
   "author": "Casey Foster <c@sey.me>",
   "license": "MIT",
-  "main": "react-list.js",
+  "main": "index.js",
   "repository": {
     "type": "git",
     "url": "https://github.com/orgsync/react-list"
   },
   "scripts": {
     "dev": "webpack --config webpack.config.js -w",
-    "build": "webpack --config webpack.config.js"
+    "build": "babel react-list.js -o bin/react-list.js",
+    "webbuild": "webpack --config webpack.config.js"
   },
   "peerDependencies": {
     "prop-types": "15",
