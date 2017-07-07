@@ -3,8 +3,6 @@ import React, {Component} from 'react';
 import ReactDOM from 'react-dom';
 import shallowCompare from 'react-addons-shallow-compare';
 
-const {findDOMNode} = ReactDOM;
-
 const CLIENT_SIZE_KEYS = {x: 'clientWidth', y: 'clientHeight'};
 const CLIENT_START_KEYS = {x: 'clientTop', y: 'clientLeft'};
 const INNER_SIZE_KEYS = {x: 'innerWidth', y: 'innerHeight'};
@@ -48,7 +46,7 @@ const isEqualSubset = (a, b) => {
   return true;
 };
 
-module.exports = class ReactList extends Component {
+export class ReactList extends Component {
   static displayName = 'ReactList';
 
   static propTypes = {
@@ -151,7 +149,7 @@ module.exports = class ReactList extends Component {
   getScrollParent() {
     const {axis, scrollParentGetter} = this.props;
     if (scrollParentGetter) return scrollParentGetter();
-    let el = findDOMNode(this);
+    let el = this.node;
     const overflowKey = OVERFLOW_KEYS[axis];
     while (el = el.parentElement) {
       switch (window.getComputedStyle(el)[overflowKey]) {
@@ -173,14 +171,14 @@ module.exports = class ReactList extends Component {
       scrollParent[scrollKey];
     const max = this.getScrollSize() - this.getViewportSize();
     const scroll = Math.max(0, Math.min(actual, max));
-    const el = findDOMNode(this);
+    const el = this.node;
     return this.getOffset(scrollParent) + scroll - this.getOffset(el);
   }
 
   setScroll(offset) {
     const {scrollParent} = this;
     const {axis} = this.props;
-    offset += this.getOffset(findDOMNode(this));
+    offset += this.getOffset(this.node);
     if (scrollParent === window) return window.scrollTo(0, offset);
 
     offset -= this.getOffset(this.scrollParent);
@@ -411,14 +409,13 @@ module.exports = class ReactList extends Component {
 
     // Try the DOM.
     if (type === 'simple' && index >= from && index < from + size && items) {
-      const itemEl = findDOMNode(items).children[index - from];
+      const itemEl = this.items.children[index - from];
       if (itemEl) return itemEl[OFFSET_SIZE_KEYS[axis]];
     }
 
     // Try the itemSizeEstimator.
     if (itemSizeEstimator) return itemSizeEstimator(index, cache);
   }
-
   constrain(from, size, itemsPerRow, {length, minSize, type}) {
     size = Math.max(size, minSize);
     let mod = size % itemsPerRow;
@@ -504,6 +501,6 @@ module.exports = class ReactList extends Component {
       WebkitTransform: transform,
       transform
     };
-    return <div {...{style}}><div style={listStyle}>{items}</div></div>;
+    return <div ref={node => this.node = node} {...{style}}><div style={listStyle}>{items}</div></div>;
   }
 };
