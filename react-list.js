@@ -1,7 +1,6 @@
 import PropTypes from 'prop-types';
 import React, {Component} from 'react';
 import ReactDOM from 'react-dom';
-import shallowCompare from 'react-addons-shallow-compare';
 
 const CLIENT_SIZE_KEYS = {x: 'clientWidth', y: 'clientHeight'};
 const CLIENT_START_KEYS = {x: 'clientTop', y: 'clientLeft'};
@@ -13,12 +12,7 @@ const SCROLL_SIZE_KEYS = {x: 'scrollWidth', y: 'scrollHeight'};
 const SCROLL_START_KEYS = {x: 'scrollLeft', y: 'scrollTop'};
 const SIZE_KEYS = {x: 'width', y: 'height'};
 
-const requestAnimationFrame =
-        window.requestAnimationFrame ||
-        window.mozRequestAnimationFrame ||
-        window.webkitRequestAnimationFrame ||
-        window.msRequestAnimationFrame;
-const cancelAnimationFrame = window.cancelAnimationFrame || window.mozCancelAnimationFrame;
+const NOOP = () => {};
 
 // If a browser doesn't support the `options` argument to
 // add/removeEventListener, we need to check, otherwise we will
@@ -86,8 +80,9 @@ export class ReactList extends Component {
     const {from, size} = this.constrain(initialIndex, 0, itemsPerRow, props);
     this.state = {from, size, itemsPerRow};
     this.cache = {};
-    this.rafId = null;
-    this.refCallback = this.refCallback.bind(this);
+    this.prevPrevState = {};
+    this.unstable = false;
+    this.updateCounter = 0;
   }
 
   componentWillReceiveProps(next) {
@@ -97,13 +92,10 @@ export class ReactList extends Component {
 
   componentDidMount() {
     this.updateFrame = this.updateFrame.bind(this);
-    window.addEventListener('resize', this.updateFrame, {passive: true});
+    window.addEventListener('resize', this.updateFrame);
     this.updateFrame(this.scrollTo.bind(this, this.props.initialIndex));
   }
 
-  shouldComponentUpdate(props, state) {
-    return shallowCompare(this, props, state);
-  }
   componentDidUpdate() {
 
     // If the list has reached an unstable state, prevent an infinite loop.
@@ -132,10 +124,8 @@ export class ReactList extends Component {
 
   componentWillUnmount() {
     window.removeEventListener('resize', this.updateFrame);
-    this.scrollParent.removeEventListener('scroll', this.updateFrame);
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-    }
+    this.scrollParent.removeEventListener('scroll', this.updateFrame, PASSIVE);
+    this.scrollParent.removeEventListener('mousewheel', NOOP, PASSIVE);
   }
 
   getOffset(el) {
@@ -149,7 +139,8 @@ export class ReactList extends Component {
   getScrollParent() {
     const {axis, scrollParentGetter} = this.props;
     if (scrollParentGetter) return scrollParentGetter();
-    let el = this.node;
+    let el = this.reactlist;
+    console.log("scrollparent", this);
     const overflowKey = OVERFLOW_KEYS[axis];
     while (el = el.parentElement) {
       switch (window.getComputedStyle(el)[overflowKey]) {
@@ -171,14 +162,14 @@ export class ReactList extends Component {
       scrollParent[scrollKey];
     const max = this.getScrollSize() - this.getViewportSize();
     const scroll = Math.max(0, Math.min(actual, max));
-    const el = this.node;
+    const el = this.reactlist;
     return this.getOffset(scrollParent) + scroll - this.getOffset(el);
   }
 
   setScroll(offset) {
     const {scrollParent} = this;
     const {axis} = this.props;
-    offset += this.getOffset(this.node);
+    offset += this.getOffset(this.reactlist);
     if (scrollParent === window) return window.scrollTo(0, offset);
 
     offset -= this.getOffset(this.scrollParent);
@@ -224,7 +215,7 @@ export class ReactList extends Component {
       return {itemSize, itemsPerRow};
     }
 
-    const itemEls = findDOMNode(this.items).children;
+    const itemEls = this.items.children;
     if (!itemEls.length) return {};
 
     const firstEl = itemEls[0];
@@ -251,12 +242,13 @@ export class ReactList extends Component {
     return {itemSize, itemsPerRow};
   }
 
-  updateFrame() {
+  updateFrame(cb) {
     this.updateScrollParent();
+    if (typeof cb != 'function') cb = NOOP;
     switch (this.props.type) {
-    case 'simple': return this.updateSimpleFrame();
-    case 'variable': return this.updateVariableFrame();
-    case 'uniform': return this.updateUniformFrame();
+    case 'simple': return this.updateSimpleFrame(cb);
+    case 'variable': return this.updateVariableFrame(cb);
+    case 'uniform': return this.updateUniformFrame(cb);
     }
   }
 
@@ -266,33 +258,15 @@ export class ReactList extends Component {
     if (prev === this.scrollParent) return;
     if (prev) {
       prev.removeEventListener('scroll', this.updateFrame);
+      prev.removeEventListener('mousewheel', NOOP);
     }
-    this.scrollParent.addEventListener('scroll', this.updateFrame, {passive: true});
+    this.scrollParent.addEventListener('scroll', this.updateFrame, PASSIVE);
+    this.scrollParent.addEventListener('mousewheel', NOOP, PASSIVE);
   }
 
-  setNextState(state) {
-    if (this.state.from === state.from && this.state.size === state.size) {
-        return;
-    }
-
-    if (!requestAnimationFrame) {
-      this.setState(state);
-      return;
-    }
-
-    if (this.rafId !== null) {
-      return;
-    }
-
-    this.rafId = requestAnimationFrame(() => {
-      this.setState(state);
-      this.rafId = null;
-    });
-  }
-
-  updateSimpleFrame() {
+  updateSimpleFrame(cb) {
     const {end} = this.getStartAndEnd();
-    const itemEls = findDOMNode(this.items).children;
+    const itemEls = this.items.children;
     let elEnd = 0;
 
     if (itemEls.length) {
@@ -303,13 +277,14 @@ export class ReactList extends Component {
         this.getOffset(firstItemEl);
     }
 
-    if (elEnd > end) return;
+    if (elEnd > end) return cb();
 
     const {pageSize, length} = this.props;
-    this.setNextState({size: Math.min(this.state.size + pageSize, length)});
+    const size = Math.min(this.state.size + pageSize, length);
+    this.maybeSetState({size}, cb);
   }
 
-  updateVariableFrame() {
+  updateVariableFrame(cb) {
     if (!this.props.itemSizeGetter) this.cacheSizes();
 
     const {start, end} = this.getStartAndEnd();
@@ -338,13 +313,13 @@ export class ReactList extends Component {
       ++size;
     }
 
-    this.setNextState({from, size});
+    this.maybeSetState({from, size}, cb);
   }
 
-  updateUniformFrame() {
+  updateUniformFrame(cb) {
     let {itemSize, itemsPerRow} = this.getItemSizeAndItemsPerRow();
 
-    if (!itemSize || !itemsPerRow) return;
+    if (!itemSize || !itemsPerRow) return cb();
 
     const {start, end} = this.getStartAndEnd();
 
@@ -355,7 +330,7 @@ export class ReactList extends Component {
       this.props
     );
 
-    return this.setNextState({itemsPerRow, from, itemSize, size});
+    return this.maybeSetState({itemsPerRow, from, itemSize, size}, cb);
   }
 
   getSpaceBefore(index, cache = {}) {
@@ -386,7 +361,7 @@ export class ReactList extends Component {
   cacheSizes() {
     const {cache} = this;
     const {from} = this.state;
-    const itemEls = findDOMNode(this.items).children;
+    const itemEls = this.items.children;
     const sizeKey = OFFSET_SIZE_KEYS[this.props.axis];
     for (let i = 0, l = itemEls.length; i < l; ++i) {
       cache[from + i] = itemEls[i][sizeKey];
@@ -409,13 +384,14 @@ export class ReactList extends Component {
 
     // Try the DOM.
     if (type === 'simple' && index >= from && index < from + size && items) {
-      const itemEl = this.items.children[index - from];
+      const itemEl = items.children[index - from];
       if (itemEl) return itemEl[OFFSET_SIZE_KEYS[axis]];
     }
 
     // Try the itemSizeEstimator.
     if (itemSizeEstimator) return itemSizeEstimator(index, cache);
   }
+
   constrain(from, size, itemsPerRow, {length, minSize, type}) {
     size = Math.max(size, minSize);
     let mod = size % itemsPerRow;
@@ -461,17 +437,12 @@ export class ReactList extends Component {
     return [first, last];
   }
 
-  refCallback(c) {
-    this.items = c;
-    return this.items;
-  }
-
   renderItems() {
     const {itemRenderer, itemsRenderer} = this.props;
     const {from, size} = this.state;
     const items = [];
     for (let i = 0; i < size; ++i) items.push(itemRenderer(from + i, i));
-    return itemsRenderer(items, this.refCallback);
+    return itemsRenderer(items, c => this.items = c);
   }
 
   render() {
@@ -501,6 +472,6 @@ export class ReactList extends Component {
       WebkitTransform: transform,
       transform
     };
-    return <div ref={node => this.node = node} {...{style}}><div style={listStyle}>{items}</div></div>;
+    return <div ref={node => this.reactlist = node}{...{style}}><div style={listStyle}>{items}</div></div>;
   }
 };
